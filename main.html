@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>일본어 러닝 퀴즈 게임 (CSV)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script> 
+    
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #game-container {
+            width: 800px;
+            height: 500px;
+            border: 5px solid #333;
+            background-color: #a8d0e6;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        #ui-bar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+            z-index: 10;
+        }
+        #hearts {
+            color: red;
+        }
+        #runner {
+            position: absolute;
+            bottom: 50px;
+            left: 50px;
+            width: 40px;
+            height: 40px;
+            background-color: #4CAF50; 
+            border-radius: 5px;
+            transition: transform 0.1s;
+            z-index: 5;
+        }
+        #ground {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 50px;
+            background-color: #795548;
+            z-index: 4;
+        }
+        #question-area {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            display: none; 
+            z-index: 20;
+        }
+        #japanese-word {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: #00796b;
+            font-weight: bold;
+        }
+        #options-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .option-button {
+            padding: 10px 15px;
+            font-size: 1em;
+            cursor: pointer;
+            border: 2px solid #333;
+            background-color: #ffe082;
+            transition: background-color 0.2s;
+        }
+        .option-button:hover {
+            background-color: #ffd54f;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3em;
+            color: #d32f2f;
+            font-weight: bold;
+            display: none;
+            z-index: 30;
+        }
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 40;
+        }
+        #start-button {
+            padding: 15px 30px;
+            font-size: 1.5em;
+            cursor: pointer;
+            background-color: #00bcd4;
+            border: none;
+            color: white;
+            border-radius: 5px;
+            margin-top: 20px;
+            opacity: 0.5; /* 파일 업로드 전에는 흐리게 */
+            pointer-events: none; /* 파일 업로드 전에는 클릭 불가 */
+        }
+        #file-upload-section {
+            padding: 15px;
+            border: 2px dashed #ccc;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .correct {
+            background-color: #81c784 !important;
+        }
+        .incorrect {
+            background-color: #e57373 !important;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="start-screen">
+        <h1>일본어 단어 러닝 퀴즈</h1>
+        <p>게임을 시작하려면 먼저 CSV 단어 파일을 업로드하세요.</p>
+        
+        <div id="file-upload-section">
+            <input type="file" id="csv-file-input" accept=".csv" required>
+            <p id="word-count-info">업로드된 단어 수: 0</p>
+        </div>
+
+        <button id="start-button">게임 시작 (총 5개의 목숨)</button>
+    </div>
+
+    <div id="ui-bar">
+        <span>SCORE: <span id="score">0</span></span>
+        <span>HEARTS: <span id="hearts">❤️❤️❤️❤️❤️</span></span>
+        <span>CHAPTER WORDS: <span id="remaining-words">0</span></span>
+    </div>
+
+    <div id="ground"></div>
+    <div id="runner"></div>
+    
+    <div id="question-area">
+        <div id="japanese-word"></div>
+        <div id="options-container">
+            </div>
+    </div>
+
+    <div id="message"></div>
+</div>
+
+<script>
+    const GAME_SPEED = 2;
+    const MAX_HEARTS = 5;
+    const TIME_TO_NEXT_QUESTION = 300; // 문제 간격 (프레임)
+    const QUIZ_PAUSE_TIME = 1500; // 정답/오답 후 대기 시간 (ms)
+    const CHAPTER_CLEAR_COUNT = 70; // 챕터 클리어 단어 수 (요청사항 반영)
+
+    let score = 0;
+    let hearts = MAX_HEARTS;
+    let gameLoop;
+    let frameCount = 0;
+    let isQuizActive = false;
+    let currentCorrectAnswer = '';
+
+    let wordData = []; // CSV 파일에서 파싱된 전체 단어 목록
+    let currentChapterWords = []; // 현재 챕터에서 아직 풀지 않은 단어 목록
+
+    const gameContainer = document.getElementById('game-container');
+    const runner = document.getElementById('runner');
+    const scoreDisplay = document.getElementById('score');
+    const heartsDisplay = document.getElementById('hearts');
+    const remainingWordsDisplay = document.getElementById('remaining-words');
+    const questionArea = document.getElementById('question-area');
+    const japaneseWordDisplay = document.getElementById('japanese-word');
+    const optionsContainer = document.getElementById('options-container');
+    const messageDisplay = document.getElementById('message');
+    const startScreen = document.getElementById('start-screen');
+    const startButton = document.getElementById('start-button');
+    const csvFileInput = document.getElementById('csv-file-input');
+    const wordCountInfo = document.getElementById('word-count-info');
+
+    // --- CSV 파일 처리 ---
+
+    csvFileInput.addEventListener('change', handleFileUpload);
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        Papa.parse(file, {
+            complete: function(results) {
+                // 데이터 정제 및 wordData에 저장
+                wordData = results.data
+                    .map(row => {
+                        // 첫 번째 열: 일본어, 두 번째 열: 한국어 (비어있지 않은 유효한 행만)
+                        if (row.length >= 2 && row[0].trim() && row[1].trim()) {
+                            return { jp: row[0].trim(), kr: row[1].trim() };
+                        }
+                        return null;
+                    })
+                    .filter(item => item !== null);
+
+                if (wordData.length < 4) {
+                    alert("⚠️ 단어 파일의 단어가 최소 4쌍 이상이어야 게임을 시작할 수 있습니다.");
+                    startButton.style.opacity = 0.5;
+                    startButton.style.pointerEvents = 'none';
+                    wordCountInfo.textContent = `업로드된 단어 수: ${wordData.length} (부족)`;
+                    return;
+                }
+
+                wordCountInfo.textContent = `✅ 업로드된 단어 수: ${wordData.length} 개`;
+                startButton.style.opacity = 1.0;
+                startButton.style.pointerEvents = 'auto'; // 파일 업로드 성공 시 버튼 활성화
+            },
+            error: function(error) {
+                alert("CSV 파일을 파싱하는 중 오류가 발생했습니다: " + error.message);
+            }
+        });
+    }
+
+    // --- 게임 초기화 및 시작 ---
+    
+    startButton.addEventListener('click', startGame);
+
+    function startGame() {
+        if (wordData.length === 0) {
+            alert("CSV 파일을 먼저 업로드해주세요!");
+            return;
+        }
+
+        startScreen.style.display = 'none';
+        score = 0;
+        hearts = MAX_HEARTS;
+        frameCount = 0;
+        isQuizActive = false;
+        
+        // CSV 단어를 현재 챕터 단어 목록으로 설정
+        currentChapterWords = [...wordData]; 
+        
+        updateUI();
+        gameLoop = requestAnimationFrame(gameUpdate);
+    }
+
+    // --- UI 업데이트 함수 ---
+    
+    function updateUI() {
+        scoreDisplay.textContent = score;
+        heartsDisplay.textContent = '❤️'.repeat(hearts) + '🤍'.repeat(MAX_HEARTS - hearts);
+        remainingWordsDisplay.textContent = currentChapterWords.length;
+    }
+
+    // --- 게임 루프 ---
+    
+    function gameUpdate() {
+        if (hearts <= 0) {
+            endGame();
+            return;
+        }
+
+        if (!isQuizActive) {
+            // 러닝 애니메이션
+            frameCount++;
+            runner.style.transform = `translateY(${frameCount % 20 < 10 ? 0 : -5}px)`; 
+
+            // 문제 출제 타이밍 체크
+            if (frameCount % TIME_TO_NEXT_QUESTION === 0 && currentChapterWords.length > 0) {
+                isQuizActive = true;
+                showQuestion();
+            }
+
+            // 챕터 클리어 체크 (70개 단어를 모두 맞히는 조건)
+            if (wordData.length >= CHAPTER_CLEAR_COUNT && currentChapterWords.length === wordData.length - CHAPTER_CLEAR_COUNT) {
+                 showMessage("✨ 챕터 클리어! 70개 단어 달성! ✨", "#ffeb3b");
+                 endGame(true);
+                 return;
+            } else if (wordData.length < CHAPTER_CLEAR_COUNT && currentChapterWords.length === 0) {
+                // 단어 수가 70개 미만일 경우, 모두 풀면 클리어 처리
+                showMessage("✨ 모든 단어 클리어! ✨", "#ffeb3b");
+                 endGame(true);
+                 return;
+            }
+        }
+        
+        gameLoop = requestAnimationFrame(gameUpdate);
+    }
+
+    // --- 퀴즈 관련 함수 ---
+
+    function showQuestion() {
+        // 1. 문제 단어 선택
+        const wordIndex = Math.floor(Math.random() * currentChapterWords.length);
+        const questionWord = currentChapterWords[wordIndex];
+        currentCorrectAnswer = questionWord.kr;
+
+        // 2. 오답 보기 3개 선택 (전체 wordData에서 가져옴)
+        const allPossibleAnswers = wordData.map(w => w.kr).filter(kr => kr !== currentCorrectAnswer);
+        
+        const wrongAnswers = [];
+        // 단어 수가 4개 미만인 경우 보기 수가 4개보다 적을 수 있음
+        while (wrongAnswers.length < 3 && allPossibleAnswers.length > 0) {
+            const randomIndex = Math.floor(Math.random() * allPossibleAnswers.length);
+            wrongAnswers.push(allPossibleAnswers.splice(randomIndex, 1)[0]);
+        }
+
+        // 3. 정답 + 오답 합치고 섞기
+        let options = [currentCorrectAnswer, ...wrongAnswers];
+        options.sort(() => Math.random() - 0.5); 
+
+        // 4. UI에 표시
+        japaneseWordDisplay.textContent = questionWord.jp;
+        optionsContainer.innerHTML = ''; 
+        
+        options.forEach(option => {
+            const button = document.createElement('button');
+            button.className = 'option-button';
+            button.textContent = option;
+            button.addEventListener('click', () => handleAnswer(button, option === currentCorrectAnswer, questionWord));
+            optionsContainer.appendChild(button);
+        });
+
+        questionArea.style.display = 'block';
+    }
+
+    function handleAnswer(clickedButton, isCorrect, questionWord) {
+        // 모든 버튼 비활성화
+        Array.from(optionsContainer.children).forEach(btn => btn.disabled = true);
+        
+        if (isCorrect) {
+            clickedButton.classList.add('correct');
+            score += 10;
+            
+            // 맞힌 단어는 currentChapterWords에서 제거
+            currentChapterWords = currentChapterWords.filter(w => w.jp !== questionWord.jp);
+
+            showMessage("정답! 👍", "green");
+        } else {
+            clickedButton.classList.add('incorrect');
+            // 정답 표시
+            const correctButton = Array.from(optionsContainer.children).find(btn => btn.textContent === currentCorrectAnswer);
+            if (correctButton) correctButton.classList.add('correct');
+            
+            hearts -= 1;
+            showMessage("오답! 😭 정답은: " + currentCorrectAnswer, "red");
+        }
+
+        updateUI();
+        
+        setTimeout(() => {
+            questionArea.style.display = 'none';
+            messageDisplay.style.display = 'none';
+            isQuizActive = false;
+        }, QUIZ_PAUSE_TIME);
+    }
+
+    // --- 메시지 표시 함수 ---
+    
+    function showMessage(text, color) {
+        messageDisplay.textContent = text;
+        messageDisplay.style.color = color;
+        messageDisplay.style.display = 'block';
+    }
+
+    // --- 게임 종료 함수 ---
+    
+    function endGame(isClear = false) {
+        cancelAnimationFrame(gameLoop);
+        const finalMessage = isClear ? 
+            `🎉 챕터 클리어! ${wordData.length >= CHAPTER_CLEAR_COUNT ? '70개 단어 달성!' : '모든 단어 학습 완료!'} 최종 점수: ${score}점` :
+            `게임 오버! 😢 (목숨 소진) 최종 점수: ${score}점`;
+
+        alert(finalMessage);
+        
+        startScreen.innerHTML = `
+            <h1>${isClear ? 'CHAPTER CLEAR!' : 'GAME OVER!'}</h1>
+            <h2>${finalMessage}</h2>
+            <p>새로운 파일을 업로드하거나 다시 도전하세요.</p>
+            <div id="file-upload-section">
+                <input type="file" id="restart-csv-file-input" accept=".csv" required>
+                <p id="restart-word-count-info">업로드된 단어 수: ${wordData.length} 개</p>
+            </div>
+            <button id="restart-button" style="padding: 15px; font-size: 1.2em; background-color: #ff9800; border: none; color: white; border-radius: 5px; cursor: pointer; margin-top: 10px;">다시 시작</button>
+        `;
+
+        // 재시작 화면에서 파일 입력 이벤트 재연결
+        document.getElementById('restart-csv-file-input').addEventListener('change', (event) => {
+             // 기존의 wordData를 덮어쓰도록 handleFileUpload 로직을 재사용
+             handleFileUpload({ target: { files: event.target.files } });
+             document.getElementById('restart-word-count-info').textContent = `✅ 업로드된 단어 수: ${wordData.length} 개`;
+
+             const restartButton = document.getElementById('restart-button');
+             if (wordData.length >= 4) {
+                restartButton.style.opacity = 1.0;
+                restartButton.style.pointerEvents = 'auto';
+             }
+        });
+        
+        document.getElementById('restart-button').addEventListener('click', startGame);
+        startScreen.style.display = 'flex';
+        runner.style.transform = 'none';
+    }
+
+</script>
+</body>
+</html>
