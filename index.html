@@ -289,11 +289,11 @@
 
         if (!isQuizActive) {
             // 러닝 애니메이션
-            frameCount++;
-            runner.style.transform = `translateY(${frameCount % 20 < 10 ? 0 : -5}px)`; 
+            //frameCount++;
+            //runner.style.transform = `translateY(${frameCount % 20 < 10 ? 0 : -5}px)`; 
 
             // 문제 출제 타이밍 체크
-            if (frameCount % TIME_TO_NEXT_QUESTION === 0 && currentChapterWords.length > 0) {
+            if (/*frameCount % TIME_TO_NEXT_QUESTION === 0 && */currentChapterWords.length > 0) {
                 isQuizActive = true;
                 showQuestion();
             }
